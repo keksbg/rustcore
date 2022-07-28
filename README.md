@@ -1,6 +1,6 @@
 # rustcore - a simple RISC-V core implementation
 ## Extensions implemented
-Currently, no extensions are implemented. See the [roadmap][#roadmap]
+Currently, no extensions are implemented. See the [roadmap](#roadmap)
 ## Roadmap
 Extensions will be initially implemented in the order in which they are specified.
 For now, only the unprivileged specification will be worked on. The privileged spec
