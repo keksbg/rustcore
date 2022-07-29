@@ -3,53 +3,79 @@
 extern crate quote;
 
 use proc_macro::TokenStream;
+use quote::ToTokens;
 use syn::{
     parse::Parser, parse_macro_input, AttributeArgs, Field, Fields, ItemStruct, Lit, Meta,
-    NestedMeta, DeriveInput,
+    NestedMeta, DeriveInput, spanned::Spanned,
 };
 
 #[proc_macro_attribute]
 /// ONLY MEANT FOR INTERNAL USE!
 ///
 /// Creates registers. Syntax: `#[make_registers(type, length)]`
-/// where `type` is a primitive type (like `u32`). `length`
-/// is an integer representing the amount of registers to be created.
+/// where `type` is a type (like `u32`). `length` is an integer
+/// representing the amount of registers to be created.
 ///
-/// The function creates variables named `x$i` where `$i` is [0:length].
+/// This only works on structs with named fields.
+///
+/// The function creates variables named `x$i` where `$i` is 0..length.
 pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as AttributeArgs);
+    let nargs = parse_macro_input!(args as AttributeArgs);
     let pbody = parse_macro_input!(body as ItemStruct);
 
-    assert!(args.len() == 2);
+    assert!(nargs.len() == 2);
 
-    // this is all just for extracting the arguments from the macro
-    // help me
-    let mut iter = args.into_iter();
-    let _prim_type = match iter.next().unwrap() {
+    let mut iter = nargs.into_iter();
+    let next = iter.next().unwrap();
+    let span = next.span();
+
+    let mut out = proc_macro2::TokenStream::new();
+
+    let _prim_type = match next {
         NestedMeta::Meta(x) => match x {
             Meta::Path(y) => y,
-            _ => panic!("wrong type"),
+            _ => {
+                quote_spanned!(span=> compile_error!("expected type")).to_tokens(&mut out);
+                return out.into();
+            }
         },
-        _ => panic!("wrong type"),
+        _ => {
+            quote_spanned!(span=> compile_error!("expected type")).to_tokens(&mut out);
+            return out.into();
+        }
     };
 
     let prim_type = &_prim_type.segments.last().unwrap().ident;
 
-    let len: usize = match iter.next().unwrap() {
+    let next = iter.next().unwrap();
+    let span = next.span();
+
+    let len: usize = match next {
         NestedMeta::Lit(x) => match x {
             Lit::Int(y) => y.base10_parse().unwrap(),
-            _ => panic!("wrong type"),
+            _ => {
+                quote_spanned!(span=> compile_error!("expected integer")).to_tokens(&mut out);
+                return out.into();
+            },
         },
-        _ => panic!("wrong type"),
+        _ => {
+            quote_spanned!(span=> compile_error!("expected integer")).to_tokens(&mut out);
+            return out.into();
+        },
     };
 
+    let span = pbody.span();
     let attrs = pbody.attrs;
     let vis = pbody.vis;
     let ident = pbody.ident;
     let generics = pbody.generics;
-    let mut punct = match pbody.fields {
+    let fs = pbody.fields;
+    let mut punct = match fs {
         Fields::Named(x) => x.named,
-        _ => panic!("wrong type struct"),
+        _ => {
+            quote_spanned!(span=> compile_error!("expected struct with named fields")).to_tokens(&mut out);
+            return out.into();
+        },
     };
 
     let parser = Field::parse_named;
@@ -60,12 +86,12 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
     }
 
     // re-create the input struct
-    let out = quote! {
+    quote! {
         #(#attrs)*
         #vis struct #ident #generics {
             #punct
         }
-    };
+    }.to_tokens(&mut out);
 
     out.into()
 }
