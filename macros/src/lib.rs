@@ -5,8 +5,8 @@ extern crate quote;
 use proc_macro::TokenStream;
 use quote::ToTokens;
 use syn::{
-    parse::Parser, parse_macro_input, AttributeArgs, Field, Fields, ItemStruct, Lit, Meta,
-    NestedMeta, DeriveInput, spanned::Spanned,
+    parse::Parser, parse_macro_input, spanned::Spanned, AttributeArgs, DeriveInput, Field, Fields,
+    ItemStruct, Lit, Meta, NestedMeta,
 };
 
 #[proc_macro_attribute]
@@ -56,12 +56,12 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
             _ => {
                 quote_spanned!(span=> compile_error!("expected integer")).to_tokens(&mut out);
                 return out.into();
-            },
+            }
         },
         _ => {
             quote_spanned!(span=> compile_error!("expected integer")).to_tokens(&mut out);
             return out.into();
-        },
+        }
     };
 
     let span = pbody.span();
@@ -73,9 +73,10 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
     let mut punct = match fs {
         Fields::Named(x) => x.named,
         _ => {
-            quote_spanned!(span=> compile_error!("expected struct with named fields")).to_tokens(&mut out);
+            quote_spanned!(span=> compile_error!("expected struct with named fields"))
+                .to_tokens(&mut out);
             return out.into();
-        },
+        }
     };
 
     let parser = Field::parse_named;
@@ -91,7 +92,8 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
         #vis struct #ident #generics {
             #punct
         }
-    }.to_tokens(&mut out);
+    }
+    .to_tokens(&mut out);
 
     out.into()
 }
@@ -103,5 +105,6 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
 
     quote! {
         impl crate::base::Instruction for #name {}
-    }.into()
+    }
+    .into()
 }
