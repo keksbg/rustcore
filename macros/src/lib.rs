@@ -98,13 +98,61 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
     out.into()
 }
 
-#[proc_macro_derive(Instruction)]
+// TODO: proper error handling
+#[proc_macro_derive(Instruction, attributes(bits))]
 pub fn derive_instruction(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
+    // get the fields as a Punctuated<T, P>, then as an iterator over T
+    let fields = match input.data {
+        syn::Data::Struct(s) => {
+            match s.fields {
+                syn::Fields::Named(f) => f.named.into_iter(),
+                _ => panic!("nop")
+            }
+        },
+        _ => panic!("yup")
+    };
+
+    // get the bits from the attribute
+    let bits = fields.clone().map(|mut f| {
+        match f.attrs
+               .pop()
+               .unwrap()
+               .parse_meta()
+               .unwrap()
+            {
+                Meta::NameValue(nv) => nv.lit,
+                _ => panic!("oop"),
+            }
+    });
+    // get the field name (ident)
+    let ident = fields.clone().map(|f| f.ident.unwrap());
+    // get the field type
+    let ty = fields.clone().map(|f| f.ty);
 
     quote! {
-        impl crate::base::Instruction for #name {}
+        impl crate::base::Instruction for #name {
+            fn from_u32(input: u32) -> Self {
+                let mut _i = 0;
+                Self {
+                    // honestly i don't know how the fuck it was able to
+                    #(
+                        #ident: {
+                            let mut _r = 0;
+                            for i in 0..#bits {
+                                // bit shift magic (grab the bit we need, then shift right
+                                // the same amount so we get to the "beginning", then shift
+                                // to the left `i` times (`_i - i`))
+                                _r |= ((input & (1 << _i)) >> (_i - i)) as #ty;
+                                _i += 1;
+                            }
+                            _r
+                        }
+                    ),*
+                }
+            }
+        }
     }
     .into()
 }

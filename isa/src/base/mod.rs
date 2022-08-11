@@ -4,95 +4,125 @@ pub mod rv128i;
 pub mod rv32i;
 pub mod rv64i;
 
-pub trait Instruction {}
+pub trait Instruction {
+    fn from_u32(input: u32) -> Self;
+}
 
 // this would be nice:
 // https://internals.rust-lang.org/t/pre-rfc-arbitrary-bit-width-integers/15603
-// TODO: arbitrary-width integers instead of boolean arrays
+// TODO: arbitrary-width integers
+
 #[derive(Instruction)]
-#[repr(align(32))]
 /// R-type instruction
 ///
 /// Useful for register-register operations.
 /// Sources from registers `rs1` and `rs2`.
-/// Stores its output into register `rd`
+/// Stores its output into register `rd`.
 pub struct RInstruction {
-    pub opcode: [bool; 7],
+    #[bits = 7]
+    pub opcode: u8,
     /// Destination
-    pub rd: [bool; 5],
-    pub funct3: [bool; 3],
+    #[bits = 5]
+    pub rd: u8,
+    #[bits = 3]
+    pub funct3: u8,
     /// Source
-    pub rs1: [bool; 5],
+    #[bits = 5]
+    pub rs1: u8,
     /// Source
-    pub rs2: [bool; 5],
-    pub funct7: [bool; 7],
+    #[bits = 5]
+    pub rs2: u8,
+    #[bits = 7]
+    pub funct7: u8,
 }
 
 #[derive(Instruction)]
-#[repr(align(32))]
 /// I-type instruction
 ///
 /// Useful for register-immediate operations.
 /// Sources from register `rs1` and immediate `imm`.
 /// Stores its output into register `rd`.
 pub struct IInstruction {
-    pub opcode: [bool; 7],
+    #[bits = 7]
+    pub opcode: u8,
     /// Destination
-    pub rd: [bool; 5],
-    pub funct3: [bool; 3],
+    #[bits = 5]
+    pub rd: u8,
+    #[bits = 3]
+    pub funct3: u8,
     /// Source
-    pub rs1: [bool; 5],
-    pub imm: [bool; 12],
+    #[bits = 5]
+    pub rs1: u8,
+    #[bits = 12]
+    pub imm: u16,
 }
 
 #[derive(Instruction)]
-#[repr(align(32))]
 /// S-type instruction
 pub struct SInstruction {
-    pub opcode: [bool; 7],
-    pub imm0: [bool; 5],
-    pub funct3: [bool; 3],
+    #[bits = 7]
+    pub opcode: u8,
+    #[bits = 5]
+    pub imm0: u8,
+    #[bits = 3]
+    pub funct3: u8,
     /// Source
-    pub rs1: [bool; 5],
+    #[bits = 5]
+    pub rs1: u8,
     /// Source
-    pub rs2: [bool; 5],
-    pub imm1: [bool; 12],
+    #[bits = 5]
+    pub rs2: u8,
+    #[bits = 12]
+    pub imm1: u16,
 }
 
 #[derive(Instruction)]
-#[repr(align(32))]
 /// B-type instruction
 pub struct BInstruction {
-    pub opcode: [bool; 7],
-    pub imm0: [bool; 2],
-    pub imm1: [bool; 2],
-    pub funct3: [bool; 3],
+    #[bits = 7]
+    pub opcode: u8,
+    #[bits = 2]
+    pub imm0: u8,
+    #[bits = 2]
+    pub imm1: u8,
+    #[bits = 3]
+    pub funct3: u8,
     /// Source
-    pub rs1: [bool; 5],
+    #[bits = 5]
+    pub rs1: u8,
     /// Source
-    pub rs2: [bool; 5],
-    pub imm2: [bool; 8],
+    #[bits = 5]
+    pub rs2: u8,
+    #[bits = 8]
+    pub imm2: u8,
 }
 
 #[derive(Instruction)]
-#[repr(align(32))]
 /// U-type instruction
 pub struct UInstruction {
-    pub opcode: [bool; 7],
+    #[bits = 7]
+    pub opcode: u8,
     /// Destination
-    pub rd: [bool; 5],
-    pub imm: [bool; 20],
+    #[bits = 5]
+    pub rd: u8,
+    #[bits = 20]
+    pub imm: u32,
 }
 
 #[derive(Instruction)]
-#[repr(align(32))]
 /// J-type instruction
 pub struct JInstruction {
-    pub opcode: [bool; 7],
+    #[bits = 7]
+    pub opcode: u8,
     /// Destination
-    pub rd: [bool; 5],
-    pub imm0: [bool; 8],
-    pub imm1: [bool; 1],
-    pub imm2: [bool; 10],
-    pub imm3: [bool; 1],
+    #[bits = 5]
+    pub rd: u8,
+    #[bits = 8]
+    pub imm0: u8,
+    #[bits = 1]
+    pub imm1: u8,
+    #[bits = 10]
+    pub imm2: u16,
+    #[bits = 1]
+    pub imm3: u8,
 }
