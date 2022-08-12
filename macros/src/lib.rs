@@ -97,7 +97,6 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
     out.into()
 }
 
-// TODO: proper error handling
 #[proc_macro_derive(Instruction, attributes(bits))]
 pub fn derive_instruction(input: TokenStream) -> TokenStream {
     let mut out = proc_macro2::TokenStream::new();
@@ -110,10 +109,14 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
         syn::Data::Struct(s) => {
             match s.fields {
                 syn::Fields::Named(f) => f.named.into_iter(),
-                _ => panic!("nop")
+                _ => return quote_spanned!{span=>
+                    compile_error!("expected a struct with named fields");
+                }.into()
             }
         },
-        _ => panic!("yup")
+        _ => return quote_spanned!{span=>
+            compile_error!("expected a struct");
+        }.into()
     };
 
     // get the bits from the attribute
@@ -125,14 +128,14 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
                .unwrap()
             {
                 Meta::NameValue(nv) => nv.lit,
-                _ => panic!("oop"),
+                _ => panic!("expected `name = value` type field attribute"),
             }
     }).collect();
 
     let sum: u8 = bits.clone().into_iter().map(|lit| {
         return match lit {
             syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
-            _ => panic!("wrong"),
+            _ => panic!("field attribute expects integer type for value"),
         }
     }).sum();
 

@@ -132,11 +132,5 @@ pub struct JInstruction {
 fn test_conversion() {
     let input = 0b00001011_01010_0111100;
     let inst = JInstruction::from_u32(input);
-    assert_eq!(inst.opcode, 0b0111100);
-    assert_eq!(inst.rd, 0b01010);
-    assert_eq!(inst.imm0, 0b1011);
-    assert_eq!(inst.imm1, 0);
-    assert_eq!(inst.imm2, 0);
-    assert_eq!(inst.imm3, 0);
     assert_eq!(input, inst.to_u32());
 }
