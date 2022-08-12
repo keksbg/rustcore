@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use quote::ToTokens;
 use syn::{
     parse::Parser, parse_macro_input, spanned::Spanned, AttributeArgs, DeriveInput, Field, Fields,
-    ItemStruct, Lit, Meta, NestedMeta, MetaNameValue,
+    ItemStruct, Lit, Meta, MetaNameValue, NestedMeta,
 };
 
 #[proc_macro_attribute]
@@ -106,44 +106,52 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
     let name = input.ident;
     // get the fields as a Punctuated<T, P>, then as an iterator over T
     let fields = match input.data {
-        syn::Data::Struct(s) => {
-            match s.fields {
-                syn::Fields::Named(f) => f.named.into_iter(),
-                _ => return quote_spanned!{span=>
+        syn::Data::Struct(s) => match s.fields {
+            syn::Fields::Named(f) => f.named.into_iter(),
+            _ => {
+                return quote_spanned! {span=>
                     compile_error!("expected a struct with named fields");
-                }.into()
+                }
+                .into()
             }
         },
-        _ => return quote_spanned!{span=>
-            compile_error!("expected a struct");
-        }.into()
+        _ => {
+            return quote_spanned! {span=>
+                compile_error!("expected a struct");
+            }
+            .into()
+        }
     };
 
     // get the bits from the attribute
-    let bits: Vec<syn::Lit> = fields.clone().map(|mut f| {
-        match f.attrs
-               .pop()
-               .unwrap()
-               .parse_meta()
-               .unwrap()
-            {
-                Meta::NameValue(nv) => nv.lit,
-                _ => panic!("expected `name = value` type field attribute"),
-            }
-    }).collect();
+    let bits: Vec<syn::Lit> = fields
+        .clone()
+        .map(|mut f| match f.attrs.pop().unwrap().parse_meta().unwrap() {
+            Meta::NameValue(nv) => nv.lit,
+            _ => panic!("expected `name = value` type field attribute"),
+        })
+        .collect();
 
-    let sum: u8 = bits.clone().into_iter().map(|lit| {
-        return match lit {
-            syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
-            _ => panic!("field attribute expects integer type for value"),
-        }
-    }).sum();
+    let sum: u8 = bits
+        .clone()
+        .into_iter()
+        .map(|lit| {
+            return match lit {
+                syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
+                _ => panic!("field attribute expects integer type for value"),
+            };
+        })
+        .sum();
 
     if sum != 32 {
-        let fmt = format!("the sum of bits in the struct ({} bits) does not equal the size of a `u32` (32 bits)", sum);
+        let fmt = format!(
+            "the sum of bits in the struct ({} bits) does not equal the size of a `u32` (32 bits)",
+            sum
+        );
         quote_spanned! {span=>
             compile_error!(#fmt);
-        }.to_tokens(&mut out);
+        }
+        .to_tokens(&mut out);
     }
 
     // get the field name (ident)
@@ -187,7 +195,8 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
                 out
             }
         }
-    }.to_tokens(&mut out);
+    }
+    .to_tokens(&mut out);
 
     out.into()
 }
