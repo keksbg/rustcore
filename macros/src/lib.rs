@@ -1,4 +1,3 @@
-#![feature(extend_one)]
 #[macro_use]
 extern crate quote;
 
@@ -6,7 +5,7 @@ use proc_macro::TokenStream;
 use quote::ToTokens;
 use syn::{
     parse::Parser, parse_macro_input, spanned::Spanned, AttributeArgs, DeriveInput, Field, Fields,
-    ItemStruct, Lit, Meta, NestedMeta,
+    ItemStruct, Lit, Meta, NestedMeta, MetaNameValue,
 };
 
 #[proc_macro_attribute]
@@ -101,7 +100,10 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
 // TODO: proper error handling
 #[proc_macro_derive(Instruction, attributes(bits))]
 pub fn derive_instruction(input: TokenStream) -> TokenStream {
+    let mut out = proc_macro2::TokenStream::new();
+
     let input = parse_macro_input!(input as DeriveInput);
+    let span = input.span();
     let name = input.ident;
     // get the fields as a Punctuated<T, P>, then as an iterator over T
     let fields = match input.data {
@@ -115,7 +117,7 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
     };
 
     // get the bits from the attribute
-    let bits = fields.clone().map(|mut f| {
+    let bits: Vec<syn::Lit> = fields.clone().map(|mut f| {
         match f.attrs
                .pop()
                .unwrap()
@@ -125,18 +127,33 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
                 Meta::NameValue(nv) => nv.lit,
                 _ => panic!("oop"),
             }
-    });
+    }).collect();
+
+    let sum: u8 = bits.clone().into_iter().map(|lit| {
+        return match lit {
+            syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
+            _ => panic!("wrong"),
+        }
+    }).sum();
+
+    if sum != 32 {
+        let fmt = format!("the sum of bits in the struct ({} bits) does not equal the size of a `u32` (32 bits)", sum);
+        quote_spanned! {span=>
+            compile_error!(#fmt);
+        }.to_tokens(&mut out);
+    }
+
     // get the field name (ident)
-    let ident = fields.clone().map(|f| f.ident.unwrap());
+    let ident: Vec<syn::Ident> = fields.clone().map(|f| f.ident.unwrap()).collect();
     // get the field type
-    let ty = fields.clone().map(|f| f.ty);
+    let ty: Vec<syn::Type> = fields.clone().map(|f| f.ty).collect();
 
     quote! {
         impl crate::base::Instruction for #name {
             fn from_u32(input: u32) -> Self {
                 let mut _i = 0;
                 Self {
-                    // honestly i don't know how the fuck it was able to
+                    // honestly i don't know how the fuck it was able to repeat correctly here
                     #(
                         #ident: {
                             let mut _r = 0;
@@ -152,7 +169,22 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
                     ),*
                 }
             }
+            fn to_u32(&self) -> u32 {
+                let mut _i = 0;
+                let mut out = 0;
+                #(
+                    for i in 0..#bits {
+                        // considering `i` will always be less/eq to `_i`, instead of
+                        // shifting right by `i` and then by `_i` we can shift
+                        // to the left by their difference
+                        out |= ((self.#ident & (1 << i)) as u32) << (_i - i);
+                        _i += 1;
+                    }
+                )*
+                out
+            }
         }
-    }
-    .into()
+    }.to_tokens(&mut out);
+
+    out.into()
 }

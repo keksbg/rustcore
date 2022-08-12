@@ -6,6 +6,7 @@ pub mod rv64i;
 
 pub trait Instruction {
     fn from_u32(input: u32) -> Self;
+    fn to_u32(&self) -> u32;
 }
 
 // this would be nice:
@@ -72,8 +73,8 @@ pub struct SInstruction {
     /// Source
     #[bits = 5]
     pub rs2: u8,
-    #[bits = 12]
-    pub imm1: u16,
+    #[bits = 7]
+    pub imm1: u8,
 }
 
 #[derive(Instruction)]
@@ -125,4 +126,17 @@ pub struct JInstruction {
     pub imm2: u16,
     #[bits = 1]
     pub imm3: u8,
+}
+
+#[test]
+fn test_conversion() {
+    let input = 0b00001011_01010_0111100;
+    let inst = JInstruction::from_u32(input);
+    assert_eq!(inst.opcode, 0b0111100);
+    assert_eq!(inst.rd, 0b01010);
+    assert_eq!(inst.imm0, 0b1011);
+    assert_eq!(inst.imm1, 0);
+    assert_eq!(inst.imm2, 0);
+    assert_eq!(inst.imm3, 0);
+    assert_eq!(input, inst.to_u32());
 }
