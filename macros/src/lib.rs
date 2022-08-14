@@ -2,11 +2,27 @@
 extern crate quote;
 
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::ToTokens;
 use syn::{
     parse::Parser, parse_macro_input, spanned::Spanned, AttributeArgs, DeriveInput, Field, Fields,
-    ItemStruct, Lit, Meta, MetaNameValue, NestedMeta,
+    ItemStruct, Lit, Meta, NestedMeta, Result, Error,
 };
+
+macro_rules! bail {
+    ( $msg:expr $(,)? ) => (
+        return ::syn::Result::Err(::syn::Error::new(
+            ::proc_macro2::Span::mixed_site(),
+            &$msg,
+        ))
+    );
+    ( $msg:expr => $spanned:expr $(,)? ) => (
+        return ::syn::Result::Err(::syn::Error::new_spanned(
+            &$spanned,
+            &$msg,
+        ))
+    );
+}
 
 #[proc_macro_attribute]
 /// ONLY MEANT FOR INTERNAL USE!
@@ -19,29 +35,28 @@ use syn::{
 ///
 /// The function creates variables named `x$i` where `$i` is 0..length.
 pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
-    let nargs = parse_macro_input!(args as AttributeArgs);
-    let pbody = parse_macro_input!(body as ItemStruct);
+    let args = parse_macro_input!(args as AttributeArgs);
+    let body = parse_macro_input!(body as ItemStruct);
 
-    assert!(nargs.len() == 2);
+    make_registers_impl(args, body)
+        .unwrap_or_else(Error::into_compile_error)
+        .into()
+}
 
-    let mut iter = nargs.into_iter();
-    let next = iter.next().unwrap();
-    let span = next.span();
+fn make_registers_impl(args: AttributeArgs, body: ItemStruct) -> Result<TokenStream2> {
+    if args.len() != 2 {
+        let fmt = format!("expected 2 arguments, found {}", args.len());
+        bail!(fmt);
+    }
 
-    let mut out = proc_macro2::TokenStream::new();
+    let mut iter = args.into_iter();
 
-    let _prim_type = match next {
+    let _prim_type = match iter.next().unwrap() {
         NestedMeta::Meta(x) => match x {
             Meta::Path(y) => y,
-            _ => {
-                quote_spanned!(span=> compile_error!("expected type")).to_tokens(&mut out);
-                return out.into();
-            }
+            m => bail!("expected type" => m),
         },
-        _ => {
-            quote_spanned!(span=> compile_error!("expected type")).to_tokens(&mut out);
-            return out.into();
-        }
+        nm => bail!("expected type" => nm),
     };
 
     let prim_type = &_prim_type.segments.last().unwrap().ident;
@@ -52,30 +67,19 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
     let len: usize = match next {
         NestedMeta::Lit(x) => match x {
             Lit::Int(y) => y.base10_parse().unwrap(),
-            _ => {
-                quote_spanned!(span=> compile_error!("expected integer")).to_tokens(&mut out);
-                return out.into();
-            }
+            lit => bail!("expected integer" => lit),
         },
-        _ => {
-            quote_spanned!(span=> compile_error!("expected integer")).to_tokens(&mut out);
-            return out.into();
-        }
+        nm => bail!("expected integer" => nm),
     };
 
-    let span = pbody.span();
-    let attrs = pbody.attrs;
-    let vis = pbody.vis;
-    let ident = pbody.ident;
-    let generics = pbody.generics;
-    let fs = pbody.fields;
+    let attrs = body.attrs;
+    let vis = body.vis;
+    let ident = body.ident;
+    let generics = body.generics;
+    let fs = body.fields;
     let mut punct = match fs {
         Fields::Named(x) => x.named,
-        _ => {
-            quote_spanned!(span=> compile_error!("expected struct with named fields"))
-                .to_tokens(&mut out);
-            return out.into();
-        }
+        f => bail!("expected struct with named fields" => f),
     };
 
     let parser = Field::parse_named;
@@ -86,72 +90,60 @@ pub fn make_registers(args: TokenStream, body: TokenStream) -> TokenStream {
     }
 
     // re-create the input struct
-    quote! {
+    Result::Ok(quote! {
         #(#attrs)*
         #vis struct #ident #generics {
             #punct
         }
-    }
-    .to_tokens(&mut out);
-
-    out.into()
+    })
 }
 
 #[proc_macro_derive(Instruction, attributes(bits))]
 pub fn derive_instruction(input: TokenStream) -> TokenStream {
-    let mut out = proc_macro2::TokenStream::new();
-
     let input = parse_macro_input!(input as DeriveInput);
-    let span = input.span();
-    let name = input.ident;
+
+    instruction_impl(input).unwrap_or_else(Error::into_compile_error).into()
+}
+
+fn instruction_impl(input: DeriveInput) -> syn::Result<TokenStream2> {
+    let name = input.clone().ident;
     // get the fields as a Punctuated<T, P>, then as an iterator over T
-    let fields = match input.data {
+    let fields = match input.clone().data {
         syn::Data::Struct(s) => match s.fields {
             syn::Fields::Named(f) => f.named.into_iter(),
-            _ => {
-                return quote_spanned! {span=>
-                    compile_error!("expected a struct with named fields");
-                }
-                .into()
-            }
+            st => bail!("expected a struct with named fields" => st),
         },
-        _ => {
-            return quote_spanned! {span=>
-                compile_error!("expected a struct");
-            }
-            .into()
-        }
+        _ => bail!("expected a struct"),
     };
 
     // get the bits from the attribute
     let bits: Vec<syn::Lit> = fields
         .clone()
-        .map(|mut f| match f.attrs.pop().unwrap().parse_meta().unwrap() {
-            Meta::NameValue(nv) => nv.lit,
-            _ => panic!("expected `name = value` type field attribute"),
-        })
-        .collect();
+        .map(|mut f| Result::<_>::Ok({
+            match f.attrs.pop().unwrap().parse_meta().unwrap() {
+                Meta::NameValue(nv) => nv.lit,
+                x => bail!("expected `name = value` type field attribute" => x),
+            }
+        }))
+        .collect::<Result<_>>()?;
 
     let sum: u8 = bits
         .clone()
         .into_iter()
-        .map(|lit| {
-            return match lit {
+        .map(|lit| syn::Result::<_>::Ok({
+            match lit {
                 syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
-                _ => panic!("field attribute expects integer type for value"),
-            };
-        })
-        .sum();
+                lit => bail!("field attribute expects integer type for value" => lit),
+            }
+        }))
+        .sum::<Result<_>>()?;
 
     if sum != 32 {
         let fmt = format!(
             "the sum of bits in the struct ({} bits) does not equal the size of a `u32` (32 bits)",
             sum
         );
-        quote_spanned! {span=>
-            compile_error!(#fmt);
-        }
-        .to_tokens(&mut out);
+        bail!(fmt => input);
     }
 
     // get the field name (ident)
@@ -159,7 +151,7 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
     // get the field type
     let ty: Vec<syn::Type> = fields.clone().map(|f| f.ty).collect();
 
-    quote! {
+    syn::Result::Ok(quote! {
         impl crate::base::Instruction for #name {
             fn from_u32(input: u32) -> Self {
                 let mut _i = 0;
@@ -195,8 +187,5 @@ pub fn derive_instruction(input: TokenStream) -> TokenStream {
                 out
             }
         }
-    }
-    .to_tokens(&mut out);
-
-    out.into()
+    })
 }
