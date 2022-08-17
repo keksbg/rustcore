@@ -3,25 +3,20 @@ extern crate quote;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::ToTokens;
 use syn::{
-    parse::Parser, parse_macro_input, spanned::Spanned, AttributeArgs, DeriveInput, Field, Fields,
-    ItemStruct, Lit, Meta, NestedMeta, Result, Error,
+    parse::{Parse, ParseStream, Parser},
+    parse_macro_input,
+    AttributeArgs, DeriveInput, Error, Field, Fields, ItemStruct, Lit, LitInt, Meta, NestedMeta,
+    Result, Token,
 };
 
 macro_rules! bail {
-    ( $msg:expr $(,)? ) => (
-        return ::syn::Result::Err(::syn::Error::new(
-            ::proc_macro2::Span::mixed_site(),
-            &$msg,
-        ))
-    );
-    ( $msg:expr => $spanned:expr $(,)? ) => (
-        return ::syn::Result::Err(::syn::Error::new_spanned(
-            &$spanned,
-            &$msg,
-        ))
-    );
+    ( $msg:expr $(,)? ) => {
+        return ::syn::Result::Err(::syn::Error::new(::proc_macro2::Span::mixed_site(), &$msg))
+    };
+    ( $msg:expr => $spanned:expr $(,)? ) => {
+        return ::syn::Result::Err(::syn::Error::new_spanned(&$spanned, &$msg))
+    };
 }
 
 #[proc_macro_attribute]
@@ -62,7 +57,6 @@ fn make_registers_impl(args: AttributeArgs, body: ItemStruct) -> Result<TokenStr
     let prim_type = &_prim_type.segments.last().unwrap().ident;
 
     let next = iter.next().unwrap();
-    let span = next.span();
 
     let len: usize = match next {
         NestedMeta::Lit(x) => match x {
@@ -102,7 +96,9 @@ fn make_registers_impl(args: AttributeArgs, body: ItemStruct) -> Result<TokenStr
 pub fn derive_instruction(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    instruction_impl(input).unwrap_or_else(Error::into_compile_error).into()
+    instruction_impl(input)
+        .unwrap_or_else(Error::into_compile_error)
+        .into()
 }
 
 fn instruction_impl(input: DeriveInput) -> syn::Result<TokenStream2> {
@@ -119,23 +115,27 @@ fn instruction_impl(input: DeriveInput) -> syn::Result<TokenStream2> {
     // get the bits from the attribute
     let bits: Vec<syn::Lit> = fields
         .clone()
-        .map(|mut f| Result::<_>::Ok({
-            match f.attrs.pop().unwrap().parse_meta().unwrap() {
-                Meta::NameValue(nv) => nv.lit,
-                x => bail!("expected `name = value` type field attribute" => x),
-            }
-        }))
+        .map(|mut f| {
+            Result::<_>::Ok({
+                match f.attrs.pop().unwrap().parse_meta().unwrap() {
+                    Meta::NameValue(nv) => nv.lit,
+                    x => bail!("expected `name = value` type field attribute" => x),
+                }
+            })
+        })
         .collect::<Result<_>>()?;
 
     let sum: u8 = bits
         .clone()
         .into_iter()
-        .map(|lit| syn::Result::<_>::Ok({
-            match lit {
-                syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
-                lit => bail!("field attribute expects integer type for value" => lit),
-            }
-        }))
+        .map(|lit| {
+            syn::Result::<_>::Ok({
+                match lit {
+                    syn::Lit::Int(i) => i.base10_parse::<u8>().unwrap(),
+                    lit => bail!("field attribute expects integer type for value" => lit),
+                }
+            })
+        })
         .sum::<Result<_>>()?;
 
     if sum != 32 {
@@ -149,7 +149,7 @@ fn instruction_impl(input: DeriveInput) -> syn::Result<TokenStream2> {
     // get the field name (ident)
     let ident: Vec<syn::Ident> = fields.clone().map(|f| f.ident.unwrap()).collect();
     // get the field type
-    let ty: Vec<syn::Type> = fields.clone().map(|f| f.ty).collect();
+    let ty: Vec<syn::Type> = fields.map(|f| f.ty).collect();
 
     syn::Result::Ok(quote! {
         impl crate::base::Instruction for #name {
@@ -180,11 +180,84 @@ fn instruction_impl(input: DeriveInput) -> syn::Result<TokenStream2> {
                         // considering `i` will always be less/eq to `_i`, instead of
                         // shifting right by `i` and then by `_i` we can shift
                         // to the left by their difference
-                        out |= ((self.#ident & (1 << i)) as u32) << (_i - i);
+                        out |= ((self.#ident as u32 & (1 << i)) as u32) << (_i - i);
                         _i += 1;
                     }
                 )*
                 out
+            }
+        }
+    })
+}
+
+struct GenOpcodesInput {
+    punct: syn::punctuated::Punctuated<OpcodesField, Token![,]>,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct OpcodesField {
+    ident: syn::Ident,
+    eq_token: Token![=],
+    literal: LitInt,
+    fat_arrow_token: Token![=>],
+    instruction_type: syn::Ident,
+}
+
+impl Parse for OpcodesField {
+    fn parse(input: ParseStream) -> Result<Self> {
+        Ok(OpcodesField {
+            ident: input.parse()?,
+            eq_token: input.parse()?,
+            literal: input.parse()?,
+            fat_arrow_token: input.parse()?,
+            instruction_type: input.parse()?,
+        })
+    }
+}
+
+impl Parse for GenOpcodesInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        Ok(GenOpcodesInput {
+            punct: input.parse_terminated(OpcodesField::parse)?,
+        })
+    }
+}
+
+#[proc_macro]
+pub fn gen_opcodes(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as GenOpcodesInput);
+
+    gen_opcodes_impl(input)
+        .unwrap_or_else(Error::into_compile_error)
+        .into()
+}
+
+fn gen_opcodes_impl(input: GenOpcodesInput) -> Result<TokenStream2> {
+    let vec = input.punct.into_iter();
+    let ident: Vec<syn::Ident> = vec.clone().map(|v| v.ident).collect();
+    let lit: Vec<syn::LitInt> = vec.clone().map(|v| v.literal).collect();
+    let inst_type: Vec<syn::Ident> = vec.clone().map(|v| v.instruction_type).collect();
+    let inst: Vec<syn::Ident> = vec
+        .map(|v| format_ident!("{}Instruction", v.instruction_type))
+        .collect();
+    Ok(quote! {
+        #[repr(u8)]
+        pub enum OpCodes {
+            #(#ident = #lit),*
+        }
+
+        pub fn decode_instruction(input: u32) -> Result<Instructions, ()> {
+            let opcode = (input & 0b0111_1111) as u8;
+            match opcode {
+                #(
+                    #lit => Ok(
+                        crate::base::Instructions::#inst_type(
+                            crate::base::#inst::from_u32(input)
+                        )
+                    ),
+                )*
+                _ => Err(()),
             }
         }
     })

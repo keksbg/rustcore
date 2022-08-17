@@ -13,6 +13,15 @@ pub trait Instruction {
 // https://internals.rust-lang.org/t/pre-rfc-arbitrary-bit-width-integers/15603
 // TODO: arbitrary-width integers
 
+pub enum Instructions {
+    R(RInstruction),
+    I(IInstruction),
+    S(SInstruction),
+    B(BInstruction),
+    U(UInstruction),
+    J(JInstruction),
+}
+
 #[derive(Instruction)]
 /// R-type instruction
 ///
